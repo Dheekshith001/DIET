@@ -3,67 +3,82 @@ import pickle
 import pandas as pd
 import random
 
-# Load model
-model = None
-try:
-    with open('food_model.pickle', 'rb') as file:
-        model = pickle.load(file)
-except Exception as e:
-    st.error("Model could not be loaded. Please check the file and try again.")
+# Load ML model
+with open('food_model.pickle', 'rb') as file:
+    model = pickle.load(file)
 
-# Load data
-food_data = pd.DataFrame()
-try:
-    food_data = pd.read_csv('done_food_data.csv')
-except Exception as e:
-    st.error("Data file could not be loaded. Please check the file and try again.")
+# Load dataset
+food_data = pd.read_csv('done_food_data.csv')
 
-# Title
-st.title("🍽️ Personalized Diet Recommendation System")
+# Exclude keywords for vegetarian filtering
+exclude_keywords = ['Egg', 'Fish', 'meat', 'beef', 'Chicken', 'Beef', 'Deer', 'lamb', 'crab', 'pork',
+                    'Turkey', 'flesh', 'Ostrich', 'Emu', 'cuttelfish', 'Seaweed', 'crayfish', 'shrimp', 'Octopus']
 
-st.header("🔮 Predict Your Goal")
-input_1 = st.number_input("Enter Feature 1", min_value=0.0)
-input_2 = st.number_input("Enter Feature 2", min_value=0.0)
-input_3 = st.number_input("Enter Feature 3", min_value=0.0)
+# App title
+st.title("Food Recommendation and Prediction App")
 
-if st.button("Predict Goal"):
-    if model is not None:
-        prediction = model.predict([[input_1, input_2, input_3]])[0]
-        goal = {
-            'Muscle_Gain': '💪 Muscle Gain',
-            'Weight_Gain': '📈 Weight Gain',
-            'Weight_Loss': '📉 Weight Loss'
-        }.get(prediction, '🍽️ General')
-        st.success(f"Recommended goal: {goal}")
-    else:
-        st.error("Model not available.")
+# Navigation
+page = st.sidebar.selectbox("Go to", ["Home", "Search Foods", "Muscle Gain", "Weight Gain", "Weight Loss"])
 
-# Filters
-st.header("🥗 Filter Your Food Plan")
-goal_option = st.selectbox("Choose your goal", ["Muscle_Gain", "Weight_Gain", "Weight_Loss"])
-vegetarian = st.checkbox("Vegetarian Only")
-filter_iron = st.checkbox("High in Iron")
-filter_calcium = st.checkbox("High in Calcium")
+# --- Prediction Page ---
+if page == "Home":
+    st.subheader("Enter your nutritional inputs:")
+    input_1 = st.number_input("Input 1")
+    input_2 = st.number_input("Input 2")
+    input_3 = st.number_input("Input 3")
 
-if st.button("Show Food Recommendations"):
-    if food_data.empty:
-        st.error("Food data is not available.")
-    else:
-        df = food_data[food_data['category'] == goal_option]
+    if st.button("Predict"):
+        try:
+            inputs = [[input_1, input_2, input_3]]
+            prediction = model.predict(inputs)
 
-        if filter_iron:
-            df = df[df['Iron_mg'] > 6]
-        if filter_calcium:
-            df = df[df['Calcium_mg'] > 150]
-        if vegetarian:
-            exclude = ['Egg','Fish','meat','beef','Chicken','Beef','Deer','lamb','crab',
-                       'pork','turkey','flesh','Ostrich','Emu','Seaweed','shrimp','Octopus']
-            df = df[~df['Descrip'].str.contains('|'.join(exclude), case=False, na=False)]
+            category_map = {
+                'Muscle_Gain': 'Muscle Gain',
+                'Weight_Gain': 'Weight Gain',
+                'Weight_Loss': 'Weight Loss'
+            }
 
-        if df.empty:
-            st.warning("No matching foods found.")
+            result = category_map.get(prediction[0], 'General food')
+            st.success(f"Recommended Category: {result}")
+        except Exception as e:
+            st.error(f"Error in prediction: {e}")
+
+# --- Common filter UI ---
+def food_filters(data):
+    veg = st.checkbox("Vegetarian only")
+    iron = st.checkbox("High in Iron (>6 mg)")
+    calcium = st.checkbox("High in Calcium (>150 mg)")
+
+    if iron:
+        data = data[data['Iron_mg'] > 6]
+    if calcium:
+        data = data[data['Calcium_mg'] > 150]
+    if veg:
+        data = data[~data['Descrip'].str.contains('|'.join(exclude_keywords), case=False)]
+    
+    return data
+
+# --- Recommendation Pages ---
+if page in ["Muscle Gain", "Weight Gain", "Weight Loss"]:
+    category_key = page.replace(" ", "_")
+    st.subheader(f"{page} Food Recommendations")
+
+    filtered_data = food_data[food_data['category'] == category_key]
+    filtered_data = food_filters(filtered_data)
+
+    if st.button("Get Recommendations"):
+        sample = filtered_data['Descrip'].sample(n=min(5, len(filtered_data))).tolist()
+        if sample:
+            st.write("### Recommended Foods:")
+            for food in sample:
+                st.write(f"- {food}")
         else:
-            foods = df['Descrip'].sample(n=min(5, len(df))).to_list()
-            st.subheader("🍛 Recommended Foods:")
-            for food in foods:
-                st.write(f"• {food}")
+            st.warning("No foods found with the selected filters.")
+
+# --- Search Page ---
+if page == "Search Foods":
+    sort_by = st.selectbox("Sort by", options=food_data.columns.tolist(), index=food_data.columns.get_loc("Descrip"))
+    sorted_data = food_data.sort_values(by=sort_by)
+
+    st.write("### All Foods")
+    st.dataframe(sorted_data)
